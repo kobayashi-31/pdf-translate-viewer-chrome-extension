@@ -68,12 +68,13 @@ export function createGeminiTranslator({ apiKey, model, sourceLanguage, targetLa
   }
 
   // 応答がおかしい（段落数が違う・途中で切れた）ときは、半分ずつに分けて訳し直す
+  // 1段落だけでも訳せなかったときは null を返す（その段落は原文のまま表示する。ページ全体は失敗させない）
   async function translateChunk(texts) {
     try {
       return await request(texts);
     } catch (e) {
       if (!(e instanceof BadOutput)) throw e; // 通信エラーなどはそのまま
-      if (texts.length === 1) return request(texts);
+      if (texts.length === 1) return request(texts).catch((e2) => (e2 instanceof BadOutput ? [null] : Promise.reject(e2)));
       const mid = Math.ceil(texts.length / 2);
       return [...await translateChunk(texts.slice(0, mid)), ...await translateChunk(texts.slice(mid))];
     }
@@ -81,6 +82,7 @@ export function createGeminiTranslator({ apiKey, model, sourceLanguage, targetLa
 
   // 原文をそのまま返してきた段落を見つける
   function untranslated(src, out) {
+    if (out == null) return false; // 訳せなかった段落は、念押しの対象にしない
     if ((src.match(/\p{L}{2,}/gu) || []).length < 2) return false; // 名前や数字だけの短い段落は対象外
     const re = SCRIPT[targetLanguage];
     if (re) return !re.test(out);
@@ -89,7 +91,7 @@ export function createGeminiTranslator({ apiKey, model, sourceLanguage, targetLa
   }
 
   return {
-    // texts を訳し、できたものから onEach(i, 訳文) を呼ぶ。onEach が false を返したら中断
+    // texts を訳し、できたものから onEach(i, 訳文) を呼ぶ（訳せなかった段落は 訳文 = null）。onEach が false を返したら中断
     async translateBatch(texts, onEach) {
       for (const [start, chunk] of chunks(texts)) {
         const out = await translateChunk(chunk);
@@ -130,7 +132,10 @@ function parse(body, n) {
     .join('');
   let list;
   try { list = JSON.parse(text).translations; } catch { throw new BadOutput('応答を読み取れませんでした'); }
-  if (!Array.isArray(list) || list.length !== n) throw new BadOutput('段落数が一致しません');
+  if (!Array.isArray(list)) throw new BadOutput('応答を読み取れませんでした');
+  // 1段落を頼んだのに、途中で区切って複数に分けて返してきた → つなげて1つの訳にする
+  if (n === 1 && list.length > 1) list = [list.join('')];
+  if (list.length !== n) throw new BadOutput('段落数が一致しません');
   return list.map(String);
 }
 

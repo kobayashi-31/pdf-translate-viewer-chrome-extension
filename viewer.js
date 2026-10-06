@@ -484,6 +484,13 @@ function fillBlock(el, b, text) {
   fitText(el, b);
 }
 
+// 訳せなかった段落：訳を重ねず原文を見せる。マウスを乗せると「訳し直す」が出る
+function markFailed(el, b) {
+  b.failed = true;
+  el.classList.remove('pending');
+  el.classList.add('off');
+}
+
 // 訳文を描く。$…$ の数式は記号に直し、下付き・上付きは小さい文字にする
 function renderRuns(el, text) {
   el.replaceChildren(...toRuns(text).map((run) => {
@@ -511,7 +518,8 @@ function showTools(el) {
   toolsFor = el;
   const b = el._b;
   // Chrome内蔵は何度訳しても同じ結果になるので、訳し直しは Gemini のときだけ
-  redoBtn.hidden = b.hidden || state.settings.engine !== 'gemini';
+  redoBtn.hidden = (b.hidden && !b.failed) || state.settings.engine !== 'gemini';
+  toggleBtn.hidden = !!b.failed; // まだ訳がない段落は、表示の切り替えもできない
   toggleBtn.textContent = b.hidden ? '訳を表示' : '原文を表示';
   toggleBtn.title = b.hidden ? 'この段落の訳を元に戻します' : 'この段落の訳を消して、原文が見えるようにします';
   // 段落の右上（枠のすぐ外）に置く。ページの上端に近いときは枠の内側
@@ -547,6 +555,8 @@ async function redoBlock(el) {
   try {
     await tr.translateBatch([b.text], (_, t) => {
       if (tr !== state.translator) return false;
+      if (t == null) { setStatus('この段落はうまく訳し直せませんでした。もう一度お試しください'); return; }
+      if (b.failed) { b.failed = false; b.hidden = false; } // 訳せなかった段落に、やっと訳が付いた
       fillBlock(el, b, t);
     });
   } catch (e) {
@@ -687,7 +697,7 @@ async function translatePageInner(r, translator) {
     for (const b of r.blocks) if (b.translate) b.colors = pickColors(r, pix, b);
   }
   if (translator !== state.translator) return; // 待っている間にやり直された
-  for (const b of r.blocks) b.ja = null;
+  for (const b of r.blocks) { b.ja = null; b.failed = false; }
   r.srcLayer.replaceChildren();
   r.dstLayer.replaceChildren();
 
@@ -704,6 +714,7 @@ async function translatePageInner(r, translator) {
   const els = targets.map((b) => placeBlock(r, b));
   await translator.translateBatch(targets.map((b) => b.text), (i, text) => {
     if (translator !== state.translator) return false; // 言語や設定を切り替えられた
+    if (text == null) { markFailed(els[i], targets[i]); return; } // 訳せなかった段落は原文のまま
     fillBlock(els[i], targets[i], text);
   });
   if (translator !== state.translator) return;
