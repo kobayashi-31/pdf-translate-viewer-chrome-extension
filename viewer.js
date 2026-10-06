@@ -10,7 +10,15 @@ const pagesEl = $('#pages');
 const srcSel = $('#src');
 const dstSel = $('#dst');
 const viewSel = $('#view');
-const fileUrl = new URLSearchParams(location.search).get('file');
+// file= 以降をPDFのURLとして読む。自動の切り替えでは元のURLがそのまま（エンコードなしで）付いてくるので、
+// URLSearchParams だとPDFのURLに含まれる & や + が壊れる
+const fileUrl = (() => {
+  const m = /[?&]file=(.*)$/s.exec(location.search);
+  if (!m) return null;
+  return /^[a-z]+%3A/i.test(m[1]) ? decodeURIComponent(m[1]) : m[1]; // アイコンから開いたときはエンコード済み
+})();
+// 他のサイトに埋め込まれて使われないようにする（ビューアはWebから開ける資源として登録しているため）
+if (window.top !== window) throw new Error('埋め込みでは表示できません');
 const GAP = 12; // 左右ページの間隔（CSSの .row gap と合わせる）
 const MAX_CANVAS_PIXELS = 2 ** 24; // 1枚のcanvasの上限（約1600万画素）。拡大しすぎてメモリを食わないように
 const ZOOMS = [0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
