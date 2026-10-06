@@ -789,6 +789,15 @@ async function showSettings() {
   if (changed && state.enabled) start(); // 新しい設定で訳し直す
 }
 
+// 翻訳はいらないとき：このPDFだけ、いつものビューアで開き直す
+if (fileUrl && self.chrome?.tabs) {
+  $('#openOriginal').hidden = false;
+  $('#openOriginal').onclick = async () => {
+    const tab = await chrome.tabs.getCurrent();
+    await chrome.runtime.sendMessage({ type: 'openOriginal', tabId: tab.id, url: fileUrl });
+  };
+}
+
 $('#start').onclick = start;
 $('#openSettings').onclick = showSettings;
 $('#download').onclick = download;
